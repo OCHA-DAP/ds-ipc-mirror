@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IPC / CH explorer</title>
+<style>
+  :root { --blue: #007ce0; --ink: #1a1a1a; --muted: #6b7280; --line: #e5e7eb; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); }
+  header { padding: 1rem 1.5rem; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+  header h1 { font-size: 1.15rem; margin: 0; }
+  header .sub { color: var(--muted); font-size: 0.85rem; }
+  main { padding: 1rem 1.5rem 3rem; max-width: 1200px; margin: 0 auto; }
+  .tabs { display: flex; gap: 0.5rem; margin: 0.5rem 0 1rem; }
+  .tabs button { border: 1px solid var(--line); background: #fff; padding: 0.4rem 1rem; border-radius: 999px; cursor: pointer; font-size: 0.9rem; }
+  .tabs button.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .controls { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem; align-items: center; }
+  .controls select, .controls input { padding: 0.35rem 0.5rem; border: 1px solid var(--line); border-radius: 6px; font-size: 0.9rem; }
+  .controls input[type=search] { min-width: 200px; }
+  button.dl { background: #fff; border: 1px solid var(--blue); color: var(--blue); border-radius: 6px; padding: 0.35rem 0.8rem; cursor: pointer; }
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+  th, td { padding: 0.45rem 0.6rem; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { background: #f9fafb; position: sticky; top: 0; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .note { color: var(--muted); font-size: 0.8rem; margin-top: 0.6rem; }
+  .count { color: var(--muted); font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>IPC / Cadre Harmonisé explorer</h1>
+  <span class="sub">acute food insecurity phases · mirror refreshed daily · <span id="generated"></span></span>
+</header>
+<main>
+  <div class="tabs">
+    <button id="tab-nat" class="active">National trends</button>
+    <button id="tab-areas">Areas</button>
+    <button id="tab-admin">P-coded (HAPI)</button>
+  </div>
+
+  <section id="pane-nat">
+    <div class="controls">
+      <select id="nat-country"></select>
+      <select id="nat-period">
+        <option value="">All periods</option>
+        <option selected>current</option>
+        <option>first projection</option>
+        <option>second projection</option>
+      </select>
+      <select id="nat-phase">
+        <option value="">All phases</option>
+        <option selected>3+</option>
+        <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+        <option>all</option>
+      </select>
+      <span class="count" id="nat-count"></span>
+      <button class="dl" id="nat-dl">Download CSV</button>
+    </div>
+    <div class="tablewrap">
+      <table id="nat-table">
+        <thead><tr>
+          <th>Analysis</th><th>Period</th><th>Valid from</th><th>Valid to</th>
+          <th>Phase</th><th class="num">People</th><th class="num">Share</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="note">National population in phase per analysis round. The analysis date is the assessment round; "valid from/to" is the reference period the classification applies to — a newer round's <i>current</i> can overlap an older round's <i>projection</i>. Phase rows overlap (<code>all</code> = analyzed population; <code>3+</code> duplicates 3/4/5) — never sum across phase rows. Shares are of <i>analyzed</i> population, which can be below the country total.</p>
+  </section>
+
+  <section id="pane-areas" hidden>
+    <div class="controls">
+      <select id="area-country"></select>
+      <select id="area-analysis"></select>
+      <select id="area-period"></select>
+      <select id="area-phase">
+        <option value="">All phases</option>
+        <option selected>3+</option>
+        <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+        <option>all</option>
+      </select>
+      <input type="search" id="area-search" placeholder="Search area…">
+      <span class="count" id="area-count"></span>
+      <button class="dl" id="area-dl">Download CSV</button>
+    </div>
+    <div class="tablewrap">
+      <table id="area-table">
+        <thead><tr>
+          <th>Level 1</th><th>Area</th><th>Period</th><th>Valid from</th><th>Valid to</th>
+          <th>Phase</th><th class="num">People</th><th class="num">Share</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="note">Source: per-country IPC datasets on HDX (<code>ipc</code> org) — full analysis history, 2017+ where published. Area names are as published by IPC/CH; <b>no p-codes at this level</b> — use the P-coded tab (2020-10+) to join to boundaries.</p>
+  </section>
+
+  <section id="pane-admin" hidden>
+    <div class="controls">
+      <select id="adm-country"></select>
+      <select id="adm-level">
+        <option value="">All admin levels</option>
+        <option value="0">National (adm0)</option>
+        <option value="1">Admin 1</option>
+        <option value="2" selected>Admin 2</option>
+      </select>
+      <select id="adm-type">
+        <option value="">All periods</option>
+        <option selected>current</option>
+        <option>first projection</option>
+        <option>second projection</option>
+      </select>
+      <select id="adm-phase">
+        <option value="">All phases</option>
+        <option selected>3+</option>
+        <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+        <option>all</option>
+      </select>
+      <input type="search" id="adm-search" placeholder="Search admin name…">
+      <span class="count" id="adm-count"></span>
+      <button class="dl" id="adm-dl">Download CSV</button>
+    </div>
+    <div class="tablewrap">
+      <table id="adm-table">
+        <thead><tr>
+          <th>Lvl</th><th>Admin 1</th><th>P-code</th><th>Admin 2</th><th>P-code</th>
+          <th>Period</th><th>Valid from</th><th>Valid to</th>
+          <th>Phase</th><th class="num">People</th><th class="num">Share</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="note">Source: HDX HAPI <code>food-security</code> — IPC/CH rows p-coded to COD admin units (Oct 2020+ only; p-code matching is name-based and falls back to a higher admin level where it fails). This is the layer to join to boundary datasets.</p>
+  </section>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const fmtFull = (v) => v == null ? "" : Intl.NumberFormat("en").format(v);
+const pct = (v) => v == null ? "" : Math.round(v * 100) + "%";
+
+function toCSV(rows, cols) {
+  const esc = (v) => v == null ? "" : /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v);
+  return [cols.join(",")].concat(rows.map(r => cols.map(c => esc(r[c])).join(","))).join("\n");
+}
+function download(name, text) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], {type: "text/csv"}));
+  a.download = name; a.click(); URL.revokeObjectURL(a.href);
+}
+function unpack(d) {
+  return d.rows.map(r => Object.fromEntries(d.columns.map((c, i) => [c, r[i]])));
+}
+
+["nat", "areas", "admin"].forEach(t => $("#tab-" + t).addEventListener("click", () => setTab(t)));
+function setTab(t) {
+  ["nat", "areas", "admin"].forEach(x => {
+    $("#tab-" + x).classList.toggle("active", x === t);
+    $("#pane-" + x).hidden = x !== t;
+  });
+}
+
+let INDEX = [], NATIONAL = [], AREAS = null, ADMIN = null;
+
+fetch("data/index.json?" + Date.now()).then(r => r.json()).then(d => {
+  INDEX = d.countries || [];
+  $("#generated").textContent = "data as of " + (d.generated_at || "").slice(0, 10);
+  const opts = INDEX.map(c => `<option>${c.iso3}</option>`).join("");
+  $("#nat-country").innerHTML = opts;
+  $("#area-country").innerHTML = opts;
+  $("#adm-country").innerHTML = INDEX.filter(c => c.has_admin).map(c => `<option>${c.iso3}</option>`).join("");
+  loadAreas(); loadAdmin();
+});
+fetch("data/national.json?" + Date.now()).then(r => r.json()).then(d => {
+  NATIONAL = unpack(d);
+  renderNat();
+});
+
+// ---- national ----
+["nat-country", "nat-period", "nat-phase"].forEach(id => $("#" + id).addEventListener("input", renderNat));
+function filteredNat() {
+  const c = $("#nat-country").value, p = $("#nat-period").value, ph = $("#nat-phase").value;
+  return NATIONAL.filter(r => r.iso3 === c && (!p || r.period_type === p) && (!ph || r.phase === ph))
+    .sort((a, b) => (b.analysis_date || "").localeCompare(a.analysis_date || ""));
+}
+function renderNat() {
+  const rows = filteredNat();
+  $("#nat-count").textContent = fmtFull(rows.length) + " rows";
+  $("#nat-table tbody").innerHTML = rows.map(r => `
+    <tr><td>${r.analysis_date ?? ""}</td><td>${r.period_type ?? ""}</td>
+    <td>${r.reference_period_start ?? ""}</td><td>${r.reference_period_end ?? ""}</td>
+    <td>${r.phase ?? ""}</td><td class="num">${fmtFull(r.population)}</td>
+    <td class="num">${pct(r.fraction)}</td></tr>`).join("");
+}
+$("#nat-dl").addEventListener("click", () => {
+  const cols = ["iso3", "analysis_date", "period_type", "reference_period_start", "reference_period_end", "phase", "population", "fraction"];
+  download(`ipc_national_${$("#nat-country").value}.csv`, toCSV(filteredNat(), cols));
+});
+
+// ---- areas ----
+$("#area-country").addEventListener("input", loadAreas);
+["area-analysis", "area-period", "area-phase", "area-search"].forEach(id => $("#" + id).addEventListener("input", renderAreas));
+function loadAreas() {
+  const iso = $("#area-country").value;
+  if (!iso) return;
+  fetch(`data/areas/${iso}.json?` + Date.now()).then(r => r.ok ? r.json() : null).then(d => {
+    AREAS = d ? unpack(d) : [];
+    const analyses = [...new Set(AREAS.map(r => r.analysis_date))].sort().reverse();
+    $("#area-analysis").innerHTML = analyses.map(a => `<option>${a}</option>`).join("");
+    const periods = [...new Set(AREAS.map(r => r.period_type))].sort();
+    $("#area-period").innerHTML = '<option value="">All periods</option>' + periods.map(p => `<option ${p === "current" ? "selected" : ""}>${p}</option>`).join("");
+    renderAreas();
+  });
+}
+function filteredAreas() {
+  const a = $("#area-analysis").value, p = $("#area-period").value,
+        ph = $("#area-phase").value, q = $("#area-search").value.toLowerCase();
+  return (AREAS || []).filter(r =>
+    (!a || r.analysis_date === a) && (!p || r.period_type === p) && (!ph || r.phase === ph) &&
+    (!q || (r.area_name || "").toLowerCase().includes(q) || (r.level1_name || "").toLowerCase().includes(q)))
+    .sort((a, b) => (b.population ?? -1) - (a.population ?? -1));
+}
+function renderAreas() {
+  const rows = filteredAreas();
+  $("#area-count").textContent = fmtFull(rows.length) + " rows";
+  $("#area-table tbody").innerHTML = rows.slice(0, 2000).map(r => `
+    <tr><td>${r.level1_name ?? ""}</td><td>${r.area_name ?? ""}</td><td>${r.period_type ?? ""}</td>
+    <td>${r.reference_period_start ?? ""}</td><td>${r.reference_period_end ?? ""}</td>
+    <td>${r.phase ?? ""}</td><td class="num">${fmtFull(r.population)}</td>
+    <td class="num">${pct(r.fraction)}</td></tr>`).join("") +
+    (rows.length > 2000 ? `<tr><td colspan="8" class="count">…showing first 2,000 of ${fmtFull(rows.length)} rows — narrow the filters or download the CSV.</td></tr>` : "");
+}
+$("#area-dl").addEventListener("click", () => {
+  const cols = ["level", "level1_name", "area_name", "analysis_date", "period_type", "reference_period_start", "reference_period_end", "phase", "population", "fraction"];
+  download(`ipc_areas_${$("#area-country").value}.csv`, toCSV(filteredAreas(), cols));
+});
+
+// ---- p-coded admin ----
+$("#adm-country").addEventListener("input", loadAdmin);
+["adm-level", "adm-type", "adm-phase", "adm-search"].forEach(id => $("#" + id).addEventListener("input", renderAdmin));
+function loadAdmin() {
+  const iso = $("#adm-country").value;
+  if (!iso) return;
+  fetch(`data/admin/${iso}.json?` + Date.now()).then(r => r.ok ? r.json() : null).then(d => {
+    ADMIN = d ? unpack(d) : [];
+    renderAdmin();
+  });
+}
+function filteredAdmin() {
+  const lvl = $("#adm-level").value, t = $("#adm-type").value,
+        ph = $("#adm-phase").value, q = $("#adm-search").value.toLowerCase();
+  return (ADMIN || []).filter(r =>
+    (lvl === "" || String(r.admin_level) === lvl) &&
+    (!t || r.ipc_type === t) && (!ph || r.ipc_phase === ph) &&
+    (!q || [r.admin1_name, r.admin2_name].some(n => (n || "").toLowerCase().includes(q))))
+    .sort((a, b) => (b.reference_period_start || "").localeCompare(a.reference_period_start || ""));
+}
+function renderAdmin() {
+  const rows = filteredAdmin();
+  $("#adm-count").textContent = fmtFull(rows.length) + " rows";
+  $("#adm-table tbody").innerHTML = rows.slice(0, 2000).map(r => `
+    <tr><td>${r.admin_level ?? ""}</td><td>${r.admin1_name ?? ""}</td><td>${r.admin1_code ?? ""}</td>
+    <td>${r.admin2_name ?? ""}</td><td>${r.admin2_code ?? ""}</td>
+    <td>${r.ipc_type ?? ""}</td><td>${r.reference_period_start ?? ""}</td><td>${r.reference_period_end ?? ""}</td>
+    <td>${r.ipc_phase ?? ""}</td><td class="num">${fmtFull(r.population_in_phase)}</td>
+    <td class="num">${pct(r.population_fraction_in_phase)}</td></tr>`).join("") +
+    (rows.length > 2000 ? `<tr><td colspan="11" class="count">…showing first 2,000 of ${fmtFull(rows.length)} rows — narrow the filters or download the CSV.</td></tr>` : "");
+}
+$("#adm-dl").addEventListener("click", () => {
+  const cols = ["admin_level", "admin1_code", "admin1_name", "admin2_code", "admin2_name", "ipc_type", "reference_period_start", "reference_period_end", "ipc_phase", "population_in_phase", "population_fraction_in_phase"];
+  download(`ipc_admin_${$("#adm-country").value}.csv`, toCSV(filteredAdmin(), cols));
+});
+</script>
+</body>
+</html>
