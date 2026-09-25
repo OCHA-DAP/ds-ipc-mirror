@@ -16,6 +16,21 @@ Every row is keyed on **both** the analysis round (`analysis_date`) and the
 reference (validity) period (`period_type` × `reference_period_start/end`) —
 current vs first/second projection — because rounds overlap in time.
 
+## Pipelines (Databricks + GitHub Pages)
+
+The dev DB is reachable only through its private endpoint, so the refresh and
+the site-data export run on Databricks; GitHub Actions only deploys the site.
+
+- **IPC Mirror** (Databricks job, `databricks.yml`) — daily 03:37 UTC: `refresh_ipc.py`, then `export_site_data.py`, then parks `site/data/` on the dev blob (`projects/ds-ipc-mirror/site-data/`, `scripts/site_data_blob.py upload`).
+- **Deploy explorer site** (`deploy-site.yml`) — daily 07:00 UTC (and on dispatch): copies `site/data/` down from the blob and deploys `site/` to GitHub Pages. Output identical to when the export ran in the workflow.
+
+The Job Compute policy injects the `DSCI_AZ_*` secrets; `HAPI_APP_IDENTIFIER` and `IPC_AUTH` must exist in the `dsci` secret scope.
+
+```sh
+databricks bundle validate -t prod -p DEFAULT
+databricks bundle deploy   -t prod -p DEFAULT   # config changes only; code ships by pushing main
+```
+
 ## Run locally
 
 ```sh
