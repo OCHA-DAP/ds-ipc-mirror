@@ -65,12 +65,13 @@ resources:
 
     ipc_mirror:
       name: IPC Mirror
-      description: >
-        Daily IPC / Cadre Harmonisé mirror into the dev `ipc` schema (HDX per-country history + HAPI p-coded layer + IPC API analyses), followed by the site-data export to the dev blob for the GitHub Pages explorer.
+      description: "Mirror [IPC](https://www.ipcinfo.org/) population-in-phase analyses from the [IPC API](https://docs.api.ipcinfo.org/) and [HAPI](https://hapi.humdata.org/)"
       git_source: *git_source
       tags:
         databricks: job
-        output_schema: ipc
+        type: dataset-ingest
+        kb: ipc-mirror
+        output_schema: ipc.population,ipc.population_admin,ipc.analyses
 
       permissions:
         - group_name: dsci
