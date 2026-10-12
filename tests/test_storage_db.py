@@ -119,10 +119,31 @@ def test_a_broken_pull_writes_nothing(storage):
         storage.merge_population(pd.DataFrame(rounds("SOM", "2023-01-01", ["a"])))
     with pytest.raises(RuntimeError, match="empty"):
         storage.merge_population(pd.DataFrame(columns=storage.POPULATION_COLS))
-    nameless = pd.DataFrame(full).assign(analysis_date=None)
-    with pytest.raises(RuntimeError, match="without"):
-        storage.merge_population(nameless)
+    # rows that all lack their round leave nothing to load
+    with pytest.raises(RuntimeError, match="empty"):
+        storage.merge_population(pd.DataFrame(full).assign(analysis_date=None))
     pd.testing.assert_frame_equal(before, stored(storage))
+
+
+def test_rows_without_a_round_are_left_out_not_fatal(storage):
+    pull = rounds("SOM", "2024-01-01", ["a", "b"])
+    pull[1]["analysis_date"] = None
+    storage.merge_population(pd.DataFrame(pull))
+    assert stored(storage)["area_name"].tolist() == ["a"]
+
+
+def test_a_stored_row_without_a_round_is_left_alone(storage):
+    storage.merge_population(pd.DataFrame(rounds("SOM", "2024-01-01", ["a"])))
+    with storage.get_engine(write=True).begin() as conn:
+        conn.execute(
+            text(
+                f"INSERT INTO {storage.SCHEMA}.population (iso3, level, area_name) "
+                "VALUES ('SOM', NULL, 'by hand')"
+            )
+        )
+    # it neither blocks later loads nor is removed by them
+    storage.merge_population(pd.DataFrame(rounds("SOM", "2024-01-01", ["a", "b"])))
+    assert sorted(stored(storage)["area_name"]) == ["a", "b", "by hand"]
 
 
 def test_admin_periods_are_kept_too(storage):

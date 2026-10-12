@@ -71,16 +71,21 @@ def _get(path, **params):
                 params={**params, "format": "json", "key": api_key()},
                 timeout=300,
             )
-            if r.status_code != 200:
-                raise RuntimeError(f"IPC API /{path}: HTTP {r.status_code}")
-            return r.json()
-        except (requests.RequestException, ValueError, RuntimeError) as exc:
-            if attempt == 2:
-                raise RuntimeError(
-                    f"IPC API /{path} failed: {type(exc).__name__}"
-                    + (f" ({exc})" if isinstance(exc, RuntimeError) else "")
-                ) from None
+        except requests.RequestException as exc:
+            error = type(exc).__name__
+        else:
+            if r.status_code == 200:
+                try:
+                    return r.json()
+                except ValueError:
+                    error = "the answer is not JSON"
+            else:
+                error = f"HTTP {r.status_code}"
+                if 400 <= r.status_code < 500:  # refused: asking again will not help
+                    break
+        if attempt < 2:
             time.sleep(10 * (attempt + 1))
+    raise RuntimeError(f"IPC API /{path} failed: {error}")
 
 
 def fetch_analyses():
@@ -194,24 +199,27 @@ def fetch_population(start=HISTORY_START, end=None):
             continue
         kept = 0
         for analysis in analyses:
-            if analysis.get("condition") != "A" or analysis["id"] in seen:
+            # the API also returns a few chronic analyses to a type=A call
+            if not isinstance(analysis, dict) or analysis.get("condition") != "A":
                 continue
-            iso3 = ISO3.get(analysis["country"])
+            ident, title = analysis.get("id"), analysis.get("title")
+            if ident is None:
+                logger.warning("Analysis without an id (%s) — skipped", title)
+                continue
+            if ident in seen:
+                continue
+            iso3 = ISO3.get(analysis.get("country"))
             if iso3 is None:  # regional analyses, e.g. "LAC"
                 logger.warning(
-                    "No ISO3 for %s (%s) — skipped",
-                    analysis["country"], analysis.get("title"),
+                    "No ISO3 for %s (%s) — skipped", analysis.get("country"), title
                 )
                 continue
-            seen.add(analysis["id"])
+            seen.add(ident)
             try:
                 rows += analysis_rows(analysis, iso3)
-            except (KeyError, ValueError, TypeError):
+            except (KeyError, ValueError, TypeError, AttributeError):
                 # its stored rows stay as they are
-                logger.exception(
-                    "Could not read analysis %s (%s) — skipped",
-                    analysis["id"], analysis.get("title"),
-                )
+                logger.exception("Could not read analysis %s (%s) — skipped", ident, title)
                 continue
             kept += 1
         logger.info("IPC API population %s: %s analyses", year, kept)

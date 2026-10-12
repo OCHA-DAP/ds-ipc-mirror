@@ -117,6 +117,17 @@ def test_pull_asks_for_each_year(api):
     assert set(out["iso3"]) == {"SOM"} and set(out["source_dataset"]) == {"ipc-api"}
 
 
+def test_a_malformed_record_does_not_sink_the_pull(api):
+    answers, _ = api
+    no_id = {k: v for k, v in analysis().items() if k != "id"}
+    no_country = {k: v for k, v in analysis(id="5").items() if k != "country"}
+    answers[2024] = [no_id, no_country, "not a record", analysis(id="6", groups=7)]
+    answers[2025] = [analysis(id="7", analysis_date="Jan 2025")]
+    out, failed = ipcapi.fetch_population(2024, 2025)
+    assert failed == []
+    assert out["analysis_date"].unique().tolist() == [date(2025, 1, 1)]
+
+
 def test_a_year_without_answer_is_reported_not_fatal(api):
     answers, _ = api
     answers[2023] = RuntimeError("IPC API /population failed")
@@ -141,3 +152,59 @@ def test_every_country_code_of_the_standard():
     assert len(ISO3) == 249
     assert (ISO3["SO"], ISO3["CD"], ISO3["PS"]) == ("SOM", "COD", "PSE")
     assert "LAC" not in ISO3
+
+
+class Answer:
+    def __init__(self, status, body=None):
+        self.status_code, self.body = status, body
+
+    def json(self):
+        if self.body is None:
+            raise ValueError("no JSON")
+        return self.body
+
+
+@pytest.fixture
+def http(monkeypatch):
+    """Stand-in for requests.get: plays back a list of answers or exceptions."""
+    script, urls = [], []
+
+    def get(url, params=None, timeout=None):
+        urls.append((url, params))
+        step = script.pop(0)
+        if isinstance(step, Exception):
+            raise step
+        return step
+
+    monkeypatch.setenv("IPC_AUTH", "SECRET-KEY")
+    monkeypatch.setattr(ipcapi.requests, "get", get)
+    monkeypatch.setattr(ipcapi.time, "sleep", lambda seconds: None)
+    return script, urls
+
+
+def test_a_failed_call_is_tried_again(http):
+    script, urls = http
+    script += [Answer(502), ipcapi.requests.ConnectionError("down"), Answer(200, [1])]
+    assert ipcapi._get("population", start=2020) == [1]
+    assert len(urls) == 3 and urls[0][1]["key"] == "SECRET-KEY"
+
+
+def test_a_refusal_is_not_tried_again(http):
+    script, urls = http
+    script += [Answer(403), Answer(200, [1])]
+    with pytest.raises(RuntimeError, match="HTTP 403"):
+        ipcapi._get("population", start=2020)
+    assert len(urls) == 1
+
+
+def test_errors_never_show_the_key(http, caplog):
+    script, _ = http
+    leak = ipcapi.requests.ConnectionError("GET /population?key=SECRET-KEY failed")
+    script += [leak, leak, leak, leak, leak, leak]
+    with pytest.raises(RuntimeError) as raised:
+        ipcapi._get("population", start=2020)
+    assert "SECRET-KEY" not in str(raised.value)
+    assert raised.value.__cause__ is None and raised.value.__context__ is None
+    out, failed = ipcapi.fetch_population(2020, 2020)
+    assert failed == [2020] and out.empty
+    assert "SECRET-KEY" not in caplog.text

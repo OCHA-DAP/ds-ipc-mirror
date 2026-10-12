@@ -116,18 +116,27 @@ def ensure_tables():
 def _merge(table, df, cols, guard=0.5):
     """Replace the rounds the pull holds; keep every round it does not.
 
-    One transaction. Refuses to write when the pull is empty or holds fewer
-    than ``guard`` of the stored rounds (a broken pull), and rolls back if any
-    round stored before would be missing after.
+    One transaction. The only rows deleted are those of rounds the pull holds,
+    which are inserted again from the pull straight after. Refuses to write
+    when the pull is empty or holds fewer than ``guard`` of the stored rounds
+    (a broken pull). Before committing it checks that every round stored
+    before is still stored; that cannot fail unless this function is changed.
     """
     key = ROUND[table]
     keys = ", ".join(key)
     target = f"{SCHEMA}.{table}"
     df = df[cols].copy()
+    # A row without its round cannot be matched to anything: leave it out
+    # rather than refuse the whole load over it.
+    keyless = df[key].isna().any(axis=1)
+    if keyless.any():
+        logger.warning(
+            "%s: %s pulled rows without %s were left out",
+            table, int(keyless.sum()), keys,
+        )
+        df = df[~keyless]
     if df.empty:
         raise RuntimeError(f"{table}: the pull is empty, nothing written")
-    if df[key].isna().any().any():
-        raise RuntimeError(f"{table}: the pull has rows without {keys}")
     df["refreshed_at"] = datetime.now(timezone.utc)
     collist = ", ".join([*cols, "refreshed_at"])
 
@@ -143,11 +152,14 @@ def _merge(table, df, cols, guard=0.5):
         # one load at a time (readers are not blocked): two overlapping loads
         # would each insert the rounds the other had just replaced
         conn.execute(text(f"LOCK TABLE {target} IN SHARE ROW EXCLUSIVE MODE"))
+        # Stored rows without a full key (none today) belong to no round; no
+        # pull can match them, so they are never deleted and not counted here.
+        keyed = " AND ".join(f"{c} IS NOT NULL" for c in key)
         conn.execute(
             text(
                 f"CREATE TEMP TABLE _before ON COMMIT DROP AS "
                 f"SELECT {keys}, max(refreshed_at) AS seen FROM {target} "
-                f"GROUP BY {keys}"
+                f"WHERE {keyed} GROUP BY {keys}"
             )
         )
         conn.execute(
@@ -168,7 +180,7 @@ def _merge(table, df, cols, guard=0.5):
             f"(SELECT 1 FROM _rounds r WHERE {same_round('r', 'b')})"
         )
         kept = conn.execute(text(f"SELECT count(*) {absent}")).scalar()
-        # rounds the previous pull still held: the source has just dropped them
+        # of those, the rounds read at the last load: new to being left out
         dropped = conn.execute(
             text(
                 f"SELECT {keys} {absent} AND b.seen = (SELECT max(seen) FROM _before) "
@@ -198,8 +210,8 @@ def _merge(table, df, cols, guard=0.5):
     )
     if dropped:
         logger.warning(
-            "%s: %s rounds were in the previous pull and not in this one; kept "
-            "as last read. First ones: %s",
+            "%s: %s rounds read at the last load are not in this pull; kept as "
+            "last read. First ones: %s",
             table, len(dropped), [tuple(str(v) for v in row) for row in dropped[:20]],
         )
     return {"pulled": pulled, "kept": kept, "dropped": len(dropped)}
@@ -231,6 +243,16 @@ def upsert_analyses(rows):
                 sql, {**{c: row.get(c) for c in ANALYSIS_COLS}, "refreshed_at": now}
             )
     logger.info("Upserted %s analyses", len(rows))
+
+
+def population_years():
+    """The years that have stored analyses."""
+    sql = (
+        f"SELECT DISTINCT extract(year FROM analysis_date)::int "
+        f"FROM {SCHEMA}.population WHERE analysis_date IS NOT NULL"
+    )
+    with get_engine().connect() as conn:
+        return {row[0] for row in conn.execute(text(sql))}
 
 
 def read_population():

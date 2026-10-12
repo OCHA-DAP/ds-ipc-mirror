@@ -14,9 +14,10 @@
 # secret scope.
 #
 # Extra secrets (not in the policy) are read from the dsci scope at run time by
-# the wrapper (--secret NAME); they must exist there before the first run: HAPI_APP_IDENTIFIER, IPC_AUTH.
+# the wrapper (--secret NAME): HAPI_APP_IDENTIFIER (must exist), IPC_AUTH.
 # IPC_AUTH is passed as optional, but it is what brings the analyses before 2021:
-# without it the refresh falls back to the HDX files (2021 onward).
+# without it the refresh falls back to the HDX files (2021 onward) and ends
+# with an error saying so.
 #
 # Data plane: this mirror lives on the DEV DB (+ dev blob) by design, so the
 # prod TARGET (= the live schedule, ephemeral Job Compute) still runs with
@@ -113,6 +114,12 @@ resources:
         - task_key: export_site
           depends_on:
             - task_key: refresh_ipc
+          # The refresh ends with an error when it was not a full one (a year
+          # the API did not answer, no IPC_AUTH); the tables are still loaded
+          # and nothing stored is lost, so the site is exported all the same.
+          # publish_site_data keeps the default: it must not upload after a
+          # failed export.
+          run_if: ALL_DONE
           job_cluster_key: main
           libraries: *libs
           spark_python_task:

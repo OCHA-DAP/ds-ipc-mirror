@@ -42,10 +42,24 @@ team **dev** Postgres, schema **`ipc`**. GH Pages explorer deployed from Actions
   Dead series: ETH (2021), AGO/SLV/ZWE/ZAF — stale upstream, not a bug. BFA
   stalled at 2024-06.
 - A load refuses to write when the pull is empty or holds fewer than half the
-  stored rounds, and rolls back if any stored round would be missing after.
-  When the API fails for some years the rest is loaded and the run then fails,
-  so the gap is seen. `tests/test_storage_db.py` checks all this against a
-  scratch schema on dev (`IPC_TEST_DB=1`, needs the tunnel and write creds).
+  stored rounds. Pulled rows without their round key are left out with a
+  warning. `tests/test_storage_db.py` checks the load against a scratch schema
+  on dev (`IPC_TEST_DB=1`, needs the tunnel and write creds).
+- **A refresh that was not a full one ends with an error, after loading what
+  it could**: a year the API did not answer, a year with stored analyses that
+  came back empty, no `IPC_AUTH` (HDX fallback), or a table that refused its
+  pull. Nothing stored is lost in any of these; the error is there so that a
+  source cutting its history again is seen. `export_site` has `run_if:
+  ALL_DONE` so the site is still exported (job config: needs a bundle deploy).
+- **Rounds that should go have to be removed by hand.** Because nothing is
+  deleted, a round IPC withdraws or re-dates ("Oct 2019" becomes "Nov 2019"),
+  or a level an analysis no longer has, stays as last read; its `refreshed_at`
+  is older than the latest refresh, which is the only marker. The run logs
+  such rounds once, on the day they drop out. To retire one on purpose:
+  `DELETE FROM ipc.population WHERE iso3 = … AND analysis_date = …` after
+  checking the IPC site. Two analyses of one country in the same month share
+  a round, so if the source serves only one of them that day the round is
+  replaced by that one alone.
 - DB access via `ocha_stratus.get_engine(stage=STAGE, write=...)`; `PGSSLMODE=require`.
 - Secrets: the Databricks job reads `HAPI_APP_IDENTIFIER` (base64 of
   `app-name:email`) and `IPC_AUTH` (IPC API key, per-user, from the IPC GSU)
