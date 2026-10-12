@@ -15,6 +15,8 @@
 #
 # Extra secrets (not in the policy) are read from the dsci scope at run time by
 # the wrapper (--secret NAME); they must exist there before the first run: HAPI_APP_IDENTIFIER, IPC_AUTH.
+# IPC_AUTH is passed as optional, but it is what brings the analyses before 2021:
+# without it the refresh falls back to the HDX files (2021 onward).
 #
 # Data plane: this mirror lives on the DEV DB (+ dev blob) by design, so the
 # prod TARGET (= the live schedule, ephemeral Job Compute) still runs with

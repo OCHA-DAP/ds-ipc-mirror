@@ -2,6 +2,12 @@
 
 Stage is selected with the STAGE env var (default "dev"). Writers need the
 *_UID_WRITE / *_PW_WRITE credentials; PGSSLMODE=require is enforced here.
+
+Loads never delete a round the pull does not hold. A pull replaces the rows of
+the rounds it brings and leaves every other stored round as it was, so a
+source that stops serving old analyses (as the HDX files did in 2026) cannot
+empty the mirror. `refreshed_at` is therefore the last time a row was read
+from its source: rows older than the latest refresh are no longer served.
 """
 
 import logging
@@ -16,8 +22,19 @@ from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
-SCHEMA = "ipc"
+# IPC_SCHEMA points a run at a scratch copy (tests/test_storage_db.py)
+SCHEMA = os.environ.get("IPC_SCHEMA", "ipc")
 STAGE = os.environ.get("STAGE", "dev")
+
+# What a pull replaces as a unit. A round held by the pull is replaced whole;
+# a round it does not hold is kept. Level is part of the population key so
+# that one level failing to download cannot remove that level's rows.
+ROUND = {
+    "population": ["iso3", "level", "analysis_date"],
+    "population_admin": [
+        "location_code", "ipc_type", "reference_period_start", "reference_period_end",
+    ],
+}
 
 POPULATION_COLS = [
     "iso3", "level", "level1_name", "area_name", "analysis_date",
@@ -96,39 +113,104 @@ def ensure_tables():
         conn.execute(text(ddl))
 
 
-def _replace(table, df, cols, guard=0.5):
-    """Full transactional replace, refusing to shrink the table by > guard."""
+def _merge(table, df, cols, guard=0.5):
+    """Replace the rounds the pull holds; keep every round it does not.
+
+    One transaction. Refuses to write when the pull is empty or holds fewer
+    than ``guard`` of the stored rounds (a broken pull), and rolls back if any
+    round stored before would be missing after.
+    """
+    key = ROUND[table]
+    keys = ", ".join(key)
+    target = f"{SCHEMA}.{table}"
     df = df[cols].copy()
+    if df.empty:
+        raise RuntimeError(f"{table}: the pull is empty, nothing written")
+    if df[key].isna().any().any():
+        raise RuntimeError(f"{table}: the pull has rows without {keys}")
     df["refreshed_at"] = datetime.now(timezone.utc)
-    engine = get_engine(write=True)
-    with engine.begin() as conn:
-        existing = conn.execute(
-            text(f"SELECT count(*) FROM {SCHEMA}.{table}")
-        ).scalar()
-        if existing and len(df) < existing * guard:
-            raise RuntimeError(
-                f"{table}: refusing to replace {existing} rows with {len(df)} "
-                "(partial pull?)"
-            )
-        conn.execute(text(f"DELETE FROM {SCHEMA}.{table}"))
+    collist = ", ".join([*cols, "refreshed_at"])
+
+    def same_round(a, b):
+        return " AND ".join(f"{a}.{c} = {b}.{c}" for c in key)
+
+    with get_engine(write=True).begin() as conn:
+        conn.execute(text(f"CREATE TEMP TABLE _pull (LIKE {target}) ON COMMIT DROP"))
         df.to_sql(
-            table,
-            conn,
-            schema=SCHEMA,
-            if_exists="append",
-            index=False,
-            chunksize=10_000,
+            "_pull", conn, if_exists="append", index=False, chunksize=10_000,
             method="multi",
         )
-    logger.info("Replaced %s.%s with %s rows", SCHEMA, table, len(df))
+        # one load at a time (readers are not blocked): two overlapping loads
+        # would each insert the rounds the other had just replaced
+        conn.execute(text(f"LOCK TABLE {target} IN SHARE ROW EXCLUSIVE MODE"))
+        conn.execute(
+            text(
+                f"CREATE TEMP TABLE _before ON COMMIT DROP AS "
+                f"SELECT {keys}, max(refreshed_at) AS seen FROM {target} "
+                f"GROUP BY {keys}"
+            )
+        )
+        conn.execute(
+            text(
+                f"CREATE TEMP TABLE _rounds ON COMMIT DROP AS "
+                f"SELECT DISTINCT {keys} FROM _pull"
+            )
+        )
+        stored = conn.execute(text("SELECT count(*) FROM _before")).scalar()
+        pulled = conn.execute(text("SELECT count(*) FROM _rounds")).scalar()
+        if stored and pulled < stored * guard:
+            raise RuntimeError(
+                f"{table}: the pull holds {pulled} rounds against {stored} stored "
+                "(broken pull?), nothing written"
+            )
+        absent = (
+            f"FROM _before b WHERE NOT EXISTS "
+            f"(SELECT 1 FROM _rounds r WHERE {same_round('r', 'b')})"
+        )
+        kept = conn.execute(text(f"SELECT count(*) {absent}")).scalar()
+        # rounds the previous pull still held: the source has just dropped them
+        dropped = conn.execute(
+            text(
+                f"SELECT {keys} {absent} AND b.seen = (SELECT max(seen) FROM _before) "
+                f"ORDER BY {keys}"
+            )
+        ).fetchall()
+        conn.execute(
+            text(f"DELETE FROM {target} t USING _rounds r WHERE {same_round('t', 'r')}")
+        )
+        conn.execute(
+            text(f"INSERT INTO {target} ({collist}) SELECT {collist} FROM _pull")
+        )
+        lost = conn.execute(
+            text(
+                f"SELECT count(*) FROM _before b WHERE NOT EXISTS "
+                f"(SELECT 1 FROM {target} t WHERE {same_round('t', 'b')})"
+            )
+        ).scalar()
+        if lost:
+            raise RuntimeError(
+                f"{table}: {lost} stored rounds would be lost, rolled back"
+            )
+    logger.info(
+        "Merged %s: %s rows in %s rounds pulled, %s stored rounds kept that "
+        "the pull does not hold",
+        target, len(df), pulled, kept,
+    )
+    if dropped:
+        logger.warning(
+            "%s: %s rounds were in the previous pull and not in this one; kept "
+            "as last read. First ones: %s",
+            table, len(dropped), [tuple(str(v) for v in row) for row in dropped[:20]],
+        )
+    return {"pulled": pulled, "kept": kept, "dropped": len(dropped)}
 
 
-def replace_population(df):
-    _replace("population", df, POPULATION_COLS)
+def merge_population(df):
+    return _merge("population", df, POPULATION_COLS)
 
 
-def replace_population_admin(df):
-    _replace("population_admin", df, ADMIN_COLS)
+def merge_population_admin(df):
+    return _merge("population_admin", df, ADMIN_COLS)
 
 
 def upsert_analyses(rows):

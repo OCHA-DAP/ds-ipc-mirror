@@ -1,9 +1,12 @@
-"""Ingest the per-country HDX `ipc` org datasets (full 2017+ history).
+"""Ingest the per-country HDX `ipc` org datasets: the source without a key.
 
-The per-country long CSVs (`ipc_<iso3>_{national,level1,area}_long.csv`) are the
-deepest public record of the IPC/CH consensus product — the global dataset and
-HAPI only reach back to Oct 2020. They carry area/level-1 *names* only; p-codes
-exist solely in the HAPI layer (src/hapi.py).
+The per-country long CSVs (`ipc_<iso3>_{national,level1,area}_long.csv`) are
+built from the IPC API by hdx-scraper-ipc. They held every analysis since 2017
+until the API stopped returning analyses before 2021 to a call without a year
+range; each file lost its older analyses the next time it was rebuilt. The
+mirror therefore reads the API itself (src/ipcapi.py) and uses these files
+only when there is no IPC_AUTH key or the API gives nothing. They carry
+area/level-1 *names* only; p-codes exist solely in the HAPI layer (src/hapi.py).
 
 Row key: (iso3, level, level1_name, area_name, analysis_date, period_type,
 reference_period_start, phase). `analysis_date` is the analysis/exercise round
