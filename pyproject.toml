@@ -11,6 +11,9 @@ dependencies = [
     "ocha-stratus>=0.1.7",
 ]
 
+[dependency-groups]
+dev = ["pytest", "ruff"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -20,3 +23,7 @@ packages = ["src"]
 
 [tool.ruff]
 line-length = 88
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
