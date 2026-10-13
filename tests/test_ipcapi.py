@@ -1,5 +1,6 @@
 """Rows built from the IPC API answer, and the year-by-year pull."""
 
+import os
 from datetime import date
 
 import pytest
@@ -135,6 +136,37 @@ def test_a_year_without_answer_is_reported_not_fatal(api):
     out, failed = ipcapi.fetch_population(2023, 2024)
     assert failed == [2023]
     assert len(out) == 14
+
+
+@pytest.mark.skipif(
+    "IPC_HISTORY_START" in os.environ, reason="the start year is overridden"
+)
+def test_the_pull_starts_in_2012(api):
+    answers, calls = api
+    answers.update({year: [] for year in range(2012, date.today().year + 1)})
+    out, failed = ipcapi.fetch_population()
+    assert out.empty and failed == []
+    assert calls[0][1]["start"] == ipcapi.HISTORY_START == 2012
+
+
+def test_a_year_with_nothing_acute_is_not_a_failure(api):
+    """2015 and 2016: the API answers, with chronic analyses only."""
+    answers, _ = api
+    answers[2014] = [analysis(id="0", analysis_date="Aug 2014")]
+    answers[2015] = [analysis(id="1", condition="C", analysis_date="Mar 2015")]
+    answers[2016] = []
+    out, failed = ipcapi.fetch_population(2014, 2016)
+    assert failed == []
+    assert out["analysis_date"].unique().tolist() == [date(2014, 8, 1)]
+
+
+def test_an_analysis_without_figures_is_stored_as_served():
+    """Many analyses of 2012-2014 are zeros throughout; the mirror keeps them."""
+    empty = {key: 0 for key in figures(p1=1)}
+    rows = ipcapi.analysis_rows(
+        analysis(analysis_date="Dec 2013", projected_period_dates="", **empty), "COD"
+    )
+    assert len(rows) == 7 and {r["population"] for r in rows} == {0}
 
 
 def test_two_analyses_in_one_month_first_one_wins(api):

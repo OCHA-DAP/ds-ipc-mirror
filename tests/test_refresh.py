@@ -50,13 +50,16 @@ def test_years_the_api_failed_on_are_reported(sources):
     assert problems == ["the IPC API did not answer for [2019]"]
 
 
-def test_a_stored_year_coming_back_empty_is_reported(sources):
+def test_a_stored_year_coming_back_empty_is_reported(sources, monkeypatch):
+    monkeypatch.setattr(refresh_ipc.ipcapi, "HISTORY_START", 2012)
     # no error from the API: it just has nothing for 2019 any more
     sources["api"] = (rows(2021), [])
     _, problems = refresh_ipc.fetch_population({2019, 2021})
     assert len(problems) == 1 and "[2019]" in problems[0]
-    # a year with nothing stored yet, or before the history starts, is fine
-    assert refresh_ipc.fetch_population({2012, 2021})[1] == []
+    # so does one of the early years, now that the pull starts in 2012
+    assert "[2012]" in refresh_ipc.fetch_population({2012, 2021})[1][0]
+    # a year before the history starts is fine
+    assert refresh_ipc.fetch_population({2011, 2021})[1] == []
 
 
 def test_an_empty_api_answer_falls_back_to_hdx(sources):
