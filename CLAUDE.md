@@ -5,9 +5,9 @@ team **dev** Postgres, schema **`ipc`**. GH Pages explorer deployed from Actions
 
 ## Key facts
 
-- Tables: `ipc.population` (IPC API `/population` — every acute analysis since
-  2017 at national / level-1 / area level; area/level-1 **names only, no
-  p-codes**), `ipc.population_admin` (HDX HAPI food-security — the p-coded
+- Tables: `ipc.population` (IPC API `/population` — every acute analysis the
+  API serves, 2012–2014 and 2017 onward, at national / level-1 / area level;
+  area/level-1 **names only, no p-codes**), `ipc.population_admin` (HDX HAPI food-security — the p-coded
   layer, admin 0–2, Oct 2020+ only), `ipc.analyses` (IPC API analysis
   registry: id/title/link). The API calls need `IPC_AUTH`.
 - **Loads never delete a round the pull does not hold** (`storage._merge`). A
@@ -19,9 +19,14 @@ team **dev** Postgres, schema **`ipc`**. GH Pages explorer deployed from Actions
   source; rows older than the latest refresh are no longer served there.
 - **Ask the API for each year.** `/population` without `start`/`end` returns
   2021 onward only (seen October 2026; whether that floor moves is unknown).
-  `ipcapi.fetch_population` calls it once per year from `HISTORY_START` (2017).
-  The API also serves 62 analyses of 2012–2014, never mirrored;
-  `IPC_HISTORY_START=2012` would add them, and the load would then keep them.
+  `ipcapi.fetch_population` calls it once per year from `HISTORY_START` (2012).
+- **Before 2017 the figures are thin.** The 62 analyses of 2012–2014 (previous
+  IPC protocols; nothing acute for 2015–2016) are stored as served: many have
+  zeros in every phase, a few have a count of areas as the analysed
+  population, one period ends before it starts (README, "Analyses before
+  2017"). Do not "fix" them in the mirror, and do not read a prevalence off
+  them without looking at the `all` row. Raising `IPC_HISTORY_START` again
+  would not remove them: the load keeps what is stored.
 - **Keying**: every population row carries BOTH the `analysis_date` (the
   assessment round, parsed from "Apr 2026"-style strings) AND the reference
   (validity) period `reference_period_start/end` with `period_type`
@@ -50,7 +55,7 @@ team **dev** Postgres, schema **`ipc`**. GH Pages explorer deployed from Actions
   came back empty, no `IPC_AUTH` (HDX fallback), or a table that refused its
   pull. Nothing stored is lost in any of these; the error is there so that a
   source cutting its history again is seen. `export_site` has `run_if:
-  ALL_DONE` so the site is still exported (job config: needs a bundle deploy).
+  ALL_DONE` so the site is still exported.
 - **Rounds that should go have to be removed by hand.** Because nothing is
   deleted, a round IPC withdraws or re-dates ("Oct 2019" becomes "Nov 2019"),
   or a level an analysis no longer has, stays as last read; its `refreshed_at`

@@ -8,7 +8,7 @@ Three tables, deliberately split by source:
 
 | table | source | depth | granularity |
 |---|---|---|---|
-| `ipc.population` | IPC API `/population`, asked year by year (`IPC_AUTH`) | 2017+ (every acute analysis) | national / level-1 / area — **names only** |
+| `ipc.population` | IPC API `/population`, asked year by year (`IPC_AUTH`) | 2012–2014 and 2017+ (every acute analysis the API serves) | national / level-1 / area — **names only** |
 | `ipc.population_admin` | HDX HAPI `food-security` | Oct 2020+ | admin 0–2 with **COD p-codes** |
 | `ipc.analyses` | IPC API `/analyses` (`IPC_AUTH`) | 2012+ | analysis registry (id, title, link) |
 
@@ -27,7 +27,7 @@ nothing before 2021 was left except Zimbabwe.
 
 Two changes came out of that:
 
-- **The mirror reads the IPC API itself**, one call per year since 2017, which
+- **The mirror reads the IPC API itself**, one call per year since 2012, which
   the API still serves in full. The rows are built the way `hdx-scraper-ipc`
   builds the HDX files, and match them exactly for the analyses both hold.
   Without `IPC_AUTH`, or if the API gives nothing, the HDX files are read
@@ -45,6 +45,26 @@ cases; the error is how a source cutting its history again gets noticed.
 The other side of keeping everything: a round IPC withdraws or re-dates stays
 in the table as last read, and has to be deleted by hand once checked (see
 `CLAUDE.md`).
+
+## Analyses before 2017
+
+The API serves 62 acute analyses of 2012 to 2014 (20 countries) and none of
+2015 or 2016. They were made under the previous IPC protocols and are stored
+as the API serves them, which is often not much. Of their 80 national periods:
+
+- 21 have no figures at all: every phase and the analysed population are 0
+  (in Burundi, CAR, DRC, Djibouti, Kenya, Sudan and Zimbabwe).
+- 10 have an analysed population and nobody in any phase (among them
+  Bangladesh 2012 and 2013, Cambodia, Honduras 2013 and Uganda).
+- In Haiti (2013, 2014) and CAR (October 2014) the phases add up to less than
+  half of the analysed population.
+- Pakistan (2013, 2014) has an analysed population of 144 and 148 against more
+  than 170 million people in the phases; the Philippines (2012) has 25.
+- One period ends before it starts (DRC, December 2013 to June 2013).
+
+Cambodia, the Philippines and Tajikistan have nothing after 2014. Filter on
+`analysis_date >= '2017-01-01'` for the series that is complete, and look at
+the `all` row before computing a prevalence on anything earlier.
 
 ## Pipelines (Databricks + GitHub Pages)
 

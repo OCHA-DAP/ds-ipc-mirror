@@ -1,6 +1,6 @@
 """Refresh the IPC mirror: population history + HAPI p-coded layer + analyses.
 
-Population comes from the IPC API, asked for every year since 2017, because
+Population comes from the IPC API, asked for every year since 2012, because
 the HDX files now hold 2021 onward only. Without IPC_AUTH, or when the API
 gives nothing, the HDX files are read instead; the load keeps every stored
 round a pull does not hold, so the older analyses stay either way.

@@ -30,10 +30,12 @@ from src.iso import ISO3
 logger = logging.getLogger(__name__)
 
 BASE = "https://api.ipcinfo.org"
-# The mirror's history starts in 2017. The API also serves 62 analyses of
-# 2012-2014 (none for 2015-2016), made under the previous IPC protocols; they
-# have never been mirrored. IPC_HISTORY_START=2012 would bring them in.
-HISTORY_START = int(os.environ.get("IPC_HISTORY_START", 2017))
+# The API serves acute analyses of 2012-2014 and of 2017 onward: nothing
+# earlier, and for 2015-2016 only chronic ones, which are not mirrored. The 62
+# analyses of 2012-2014 were made under the previous IPC protocols and are
+# stored as served: many have no population figures (zeros) and a few have
+# placeholder totals.
+HISTORY_START = int(os.environ.get("IPC_HISTORY_START", 2012))
 SOURCE = "ipc-api"
 
 # period type -> (field holding its dates on the analysis, suffix of its figures)

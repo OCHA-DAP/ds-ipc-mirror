@@ -55,8 +55,10 @@ def test_a_stored_year_coming_back_empty_is_reported(sources):
     sources["api"] = (rows(2021), [])
     _, problems = refresh_ipc.fetch_population({2019, 2021})
     assert len(problems) == 1 and "[2019]" in problems[0]
-    # a year with nothing stored yet, or before the history starts, is fine
-    assert refresh_ipc.fetch_population({2012, 2021})[1] == []
+    # so does one of the early years, now that the pull starts in 2012
+    assert "[2012]" in refresh_ipc.fetch_population({2012, 2021})[1][0]
+    # a year before the history starts is fine
+    assert refresh_ipc.fetch_population({2011, 2021})[1] == []
 
 
 def test_an_empty_api_answer_falls_back_to_hdx(sources):
