@@ -1,5 +1,6 @@
 """Rows built from the IPC API answer, and the year-by-year pull."""
 
+import os
 from datetime import date
 
 import pytest
@@ -137,6 +138,9 @@ def test_a_year_without_answer_is_reported_not_fatal(api):
     assert len(out) == 14
 
 
+@pytest.mark.skipif(
+    "IPC_HISTORY_START" in os.environ, reason="the start year is overridden"
+)
 def test_the_pull_starts_in_2012(api):
     answers, calls = api
     answers.update({year: [] for year in range(2012, date.today().year + 1)})

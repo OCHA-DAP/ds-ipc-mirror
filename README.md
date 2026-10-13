@@ -48,8 +48,8 @@ in the table as last read, and has to be deleted by hand once checked (see
 
 ## Analyses before 2017
 
-The API serves 62 acute analyses of 2012 to 2014 (20 countries) and none of
-2015 or 2016. They were made under the previous IPC protocols and are stored
+The API serves 62 acute analyses of 2012 to 2014 (20 countries, 60 national
+rounds) and none of 2015 or 2016. They were made under the previous IPC protocols and are stored
 as the API serves them, which is often not much. Of their 80 national periods:
 
 - 21 have no figures at all: every phase and the analysed population are 0

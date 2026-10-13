@@ -50,7 +50,8 @@ def test_years_the_api_failed_on_are_reported(sources):
     assert problems == ["the IPC API did not answer for [2019]"]
 
 
-def test_a_stored_year_coming_back_empty_is_reported(sources):
+def test_a_stored_year_coming_back_empty_is_reported(sources, monkeypatch):
+    monkeypatch.setattr(refresh_ipc.ipcapi, "HISTORY_START", 2012)
     # no error from the API: it just has nothing for 2019 any more
     sources["api"] = (rows(2021), [])
     _, problems = refresh_ipc.fetch_population({2019, 2021})
